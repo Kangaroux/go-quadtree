@@ -41,3 +41,36 @@ func Test_NewQuadTree(t *testing.T) {
 		quadtree.NewQuadTree(Rect(), quadtree.DefaultBucketSize)
 	})
 }
+
+func Test_InBounds(t *testing.T) {
+	type testInput struct {
+		p  image.Point
+		in bool
+	}
+
+	bounds := Rect()
+	tree := quadtree.NewQuadTree(bounds, 1)
+
+	inputs := []testInput{
+		{
+			p:  bounds.Min.Sub(image.Pt(1, 1)),
+			in: false,
+		},
+		{
+			p:  bounds.Min,
+			in: true,
+		},
+		{
+			p:  bounds.Max.Sub(image.Pt(1, 1)),
+			in: true,
+		},
+		{
+			p:  bounds.Max,
+			in: false,
+		},
+	}
+
+	for _, input := range inputs {
+		require.Equal(t, input.in, tree.InBounds(input.p), input)
+	}
+}
