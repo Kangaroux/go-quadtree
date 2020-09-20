@@ -16,18 +16,26 @@ const (
 )
 
 type QuadTree interface {
-	Contains(p image.Point) bool
-	Insert(pos image.Point, val interface{}) bool
+	// InBounds returns whether the point could fit in the quadtree.
+	InBounds(p image.Point) bool
+
+	// Insert adds a point and value to the quad tree and returns true if it was successful.
+	// A return value of false usually means the point is outside the bounds of the quad tree.
+	Insert(p image.Point, val interface{}) bool
+
+	// Select uses the given rect to search for any entries in the provided area. Returns nil
+	// if no entries were found.
+	Select(rect image.Rectangle) []*QEntry
 }
 
 type qTree struct {
 	bucketSize int
 	children   []*qTree
-	leaves     []*qValue
+	leaves     []*QEntry
 	rect       image.Rectangle
 }
 
-type qValue struct {
+type QEntry struct {
 	pos image.Point
 	val interface{}
 }
@@ -43,27 +51,53 @@ func newQuadTree(bounds image.Rectangle, bucketSize int) *qTree {
 
 	bounds = bounds.Canon()
 
-	if bounds.Dx() == 0 || bounds.Dy() == 0 {
+	if bounds.Empty() {
 		panic("bounds must have a positive length for both width and height")
 	}
 
 	return &qTree{
 		bucketSize: bucketSize,
-		leaves:     make([]*qValue, bucketSize),
+		leaves:     make([]*QEntry, bucketSize),
 		rect:       bounds,
 	}
 }
 
-func (t *qTree) Contains(p image.Point) bool {
+func (t *qTree) InBounds(p image.Point) bool {
 	return p.In(t.rect)
 }
 
 func (t *qTree) Insert(p image.Point, val interface{}) bool {
-	return t.insert(&qValue{pos: p, val: val})
+	return t.insert(&QEntry{pos: p, val: val})
 }
 
-func (t *qTree) insert(leaf *qValue) bool {
-	if !t.Contains(leaf.pos) {
+func (t *qTree) Select(rect image.Rectangle) []*QEntry {
+	if !t.rect.Overlaps(rect) {
+		return nil
+	}
+
+	entries := []*QEntry{}
+
+	if t.children == nil {
+		entries = append(entries, t.leaves...)
+	} else {
+		for _, child := range t.children {
+			childEntries := child.Select(rect)
+
+			if childEntries != nil {
+				entries = append(entries, t.leaves...)
+			}
+		}
+	}
+
+	if len(entries) == 0 {
+		return nil
+	}
+
+	return entries
+}
+
+func (t *qTree) insert(leaf *QEntry) bool {
+	if !t.InBounds(leaf.pos) {
 		return false
 	}
 
