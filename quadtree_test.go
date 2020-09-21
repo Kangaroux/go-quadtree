@@ -74,3 +74,34 @@ func Test_InBounds(t *testing.T) {
 		require.Equal(t, input.in, tree.InBounds(input.p), input)
 	}
 }
+
+func Test_Insert(t *testing.T) {
+	t.Run("checks boundary", func(t *testing.T) {
+		bounds := Rect()
+		tree := quadtree.NewQuadTree(bounds, 1)
+
+		require.False(t, tree.Insert(bounds.Min.Sub(image.Pt(1, 1)), nil))
+		require.True(t, tree.Insert(bounds.Min, nil))
+	})
+}
+
+func Test_Select(t *testing.T) {
+	t.Run("empty tree", func(t *testing.T) {
+		bounds := Rect()
+		tree := quadtree.NewQuadTree(bounds, 1)
+
+		require.Empty(t, tree.Select(bounds))
+	})
+
+	t.Run("items in selection bounds", func(t *testing.T) {
+		bounds := Rect()
+		tree := quadtree.NewQuadTree(bounds, 1)
+
+		tree.Insert(bounds.Min, nil)
+
+		entries := tree.Select(bounds)
+
+		require.Equal(t, 1, len(entries))
+		require.True(t, bounds.Min.Eq(entries[0].Point()))
+	})
+}
