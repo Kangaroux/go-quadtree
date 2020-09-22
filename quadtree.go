@@ -13,6 +13,7 @@ const (
 
 const (
 	DefaultBucketSize = 4
+	DefaultMaxDepth   = 8
 )
 
 type QEntry interface {
@@ -52,21 +53,38 @@ func (e *qEntry) Value() interface{} {
 }
 
 type qTree struct {
+	// The maximum number of entries a tree can hold before it needs to be subdivided.
 	bucketSize int
-	children   []*qTree
-	leaves     []*qEntry
-	rect       image.Rectangle
+
+	// The tree's children, created by subdividing. This is nil prior to subdividing.
+	children []*qTree
+
+	// How much further we can dig down into the children before we hit the "bottom".
+	// When a tree is subdivided, its children's depth is set to this value - 1.
+	// A tree can no longer subdivide once depthRemaining is 0.
+	depthRemaining int
+
+	// A list of entries in this tree's bucket. Only leaves can contain entries. When a tree
+	// is subdivided its entries are distributed among the subdivisions.
+	entries []*qEntry
+
+	// The tree's bounds. Only entries which fit inside the bounds can be added to the tree.
+	bounds image.Rectangle
 }
 
 var _ QTree = (*qTree)(nil)
 
-func NewQuadTree(bounds image.Rectangle, bucketSize int) QTree {
-	return newQuadTree(bounds, bucketSize)
+func NewQuadTree(bounds image.Rectangle, bucketSize int, maxDepth int) QTree {
+	return newQuadTree(bounds, bucketSize, maxDepth)
 }
 
-func newQuadTree(bounds image.Rectangle, bucketSize int) *qTree {
+func newQuadTree(bounds image.Rectangle, bucketSize int, maxDepth int) *qTree {
 	if bucketSize < 1 {
 		panic("bucketSize must be greater than 0")
+	}
+
+	if maxDepth < 0 {
+		panic("maxDepth cannot be negative")
 	}
 
 	bounds = bounds.Canon()
@@ -76,18 +94,19 @@ func newQuadTree(bounds image.Rectangle, bucketSize int) *qTree {
 	}
 
 	return &qTree{
-		bucketSize: bucketSize,
-		leaves:     make([]*qEntry, 0, bucketSize),
-		rect:       bounds,
+		bucketSize:     bucketSize,
+		depthRemaining: maxDepth,
+		entries:        make([]*qEntry, 0, bucketSize),
+		bounds:         bounds,
 	}
 }
 
 func (t *qTree) Bounds() image.Rectangle {
-	return t.rect
+	return t.bounds
 }
 
 func (t *qTree) InBounds(p image.Point) bool {
-	return p.In(t.rect)
+	return p.In(t.bounds)
 }
 
 func (t *qTree) Insert(p image.Point, val interface{}) bool {
@@ -95,17 +114,17 @@ func (t *qTree) Insert(p image.Point, val interface{}) bool {
 }
 
 func (t *qTree) Select(rect image.Rectangle) []QEntry {
-	if !t.rect.Overlaps(rect) {
+	if !t.bounds.Overlaps(rect) {
 		return nil
 	}
 
 	entries := []QEntry{}
 
 	if t.children == nil {
-		if len(t.leaves) > 0 {
-			leafEntries := make([]QEntry, len(t.leaves))
+		if len(t.entries) > 0 {
+			leafEntries := make([]QEntry, len(t.entries))
 
-			for i, leaf := range t.leaves {
+			for i, leaf := range t.entries {
 				leafEntries[i] = leaf
 			}
 
@@ -145,15 +164,15 @@ func (t *qTree) insert(entry *qEntry) bool {
 		return true
 	}
 
-	// If there's no children try and add it to this bucket.
-	if len(t.leaves) < t.bucketSize {
-		t.leaves = append(t.leaves, entry)
+	// Add the entry to this tree if there's room for it, or if we have hit the depth limit.
+	if t.depthRemaining == 0 || len(t.entries) < t.bucketSize {
+		t.entries = append(t.entries, entry)
 		return true
 	}
 
 	// This tree is now at capacity. Subdivide into quadrants and move the leaves into the children.
 	t.children = t.subdivide()
-	leaves := append(t.leaves, entry)
+	leaves := append(t.entries, entry)
 
 	for _, leaf := range leaves {
 		for _, child := range t.children {
@@ -163,15 +182,15 @@ func (t *qTree) insert(entry *qEntry) bool {
 		}
 	}
 
-	t.leaves = nil
+	t.entries = nil
 
 	return true
 }
 
 func (t *qTree) subdivide() []*qTree {
 	trees := make([]*qTree, 4)
-	min := t.rect.Min
-	max := t.rect.Max
+	min := t.bounds.Min
+	max := t.bounds.Max
 	center := min.Add(max).Div(2)
 
 	// North west
@@ -181,6 +200,7 @@ func (t *qTree) subdivide() []*qTree {
 			Max: center,
 		},
 		t.bucketSize,
+		t.depthRemaining-1,
 	)
 
 	// North east
@@ -190,6 +210,7 @@ func (t *qTree) subdivide() []*qTree {
 			Max: image.Pt(max.X, center.Y),
 		},
 		t.bucketSize,
+		t.depthRemaining-1,
 	)
 
 	// South west
@@ -199,6 +220,7 @@ func (t *qTree) subdivide() []*qTree {
 			Max: image.Pt(center.X, max.Y),
 		},
 		t.bucketSize,
+		t.depthRemaining-1,
 	)
 
 	// South east
@@ -208,6 +230,7 @@ func (t *qTree) subdivide() []*qTree {
 			Max: max,
 		},
 		t.bucketSize,
+		t.depthRemaining-1,
 	)
 
 	return trees
