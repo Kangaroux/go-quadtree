@@ -141,10 +141,10 @@ func Test_Select(t *testing.T) {
 
 		tree.Insert(bounds.Min, nil)
 
-		entries := tree.Select(bounds)
+		elements := tree.Select(bounds)
 
-		require.Equal(t, 1, len(entries))
-		require.True(t, bounds.Min.Eq(entries[0].Point()))
+		require.Equal(t, 1, len(elements))
+		require.True(t, bounds.Min.Eq(elements[0].Point()))
 	})
 
 	t.Run("select multiple from flat tree", func(t *testing.T) {
@@ -159,9 +159,9 @@ func Test_Select(t *testing.T) {
 			require.True(t, tree.Insert(p, nil))
 		}
 
-		entries := tree.Select(bounds)
+		elements := tree.Select(bounds)
 
-		require.Equal(t, len(points), len(entries))
+		require.Equal(t, len(points), len(elements))
 	})
 
 	t.Run("select multiple from deep tree", func(t *testing.T) {
@@ -181,8 +181,8 @@ func Test_Select(t *testing.T) {
 			require.True(t, tree.Insert(p, nil))
 		}
 
-		entries := tree.Select(bounds)
+		elements := tree.Select(bounds)
 
-		require.Equal(t, len(points), len(entries))
+		require.Equal(t, len(points), len(elements))
 	})
 }

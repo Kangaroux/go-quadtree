@@ -2,25 +2,26 @@ package quadtree
 
 import "image"
 
-type direction int
-
 const (
-	nw direction = iota
-	ne
-	sw
-	se
-)
-
-const (
+	// DefaultBucketSize probably shouldn't be used unless you are working with small datasets.
+	// See the comment for NewQuadTree.
 	DefaultBucketSize = 4
-	DefaultMaxDepth   = 8
+
+	// DefaultMaxDepth is a reasonable default to use for smaller datasets. See the comment
+	// for NewQuadTree.
+	DefaultMaxDepth = 4
 )
 
-type QEntry interface {
+// QElement is an interface for an element in a QTree. Each element has coordinates and a value.
+type QElement interface {
+	// Point returns the element's coordinates.
 	Point() image.Point
+
+	// Value returns the element's value.
 	Value() interface{}
 }
 
+// QTree is an interface for a quad tree.
 type QTree interface {
 	// Bounds returns the tree's boundaries.
 	Bounds() image.Rectangle
@@ -32,28 +33,28 @@ type QTree interface {
 	// A return value of false usually means the point is outside the bounds of the quad tree.
 	Insert(p image.Point, val interface{}) bool
 
-	// Select uses the given rect to search for any entries in the provided area. Returns nil
-	// if no entries were found.
-	Select(rect image.Rectangle) []QEntry
+	// Select uses the given rect to search for any elements in the provided area. Returns nil
+	// if no elements were found.
+	Select(rect image.Rectangle) []QElement
 }
 
-type qEntry struct {
+type qElement struct {
 	p   image.Point
 	val interface{}
 }
 
-var _ QEntry = (*qEntry)(nil)
+var _ QElement = (*qElement)(nil)
 
-func (e *qEntry) Point() image.Point {
+func (e *qElement) Point() image.Point {
 	return e.p
 }
 
-func (e *qEntry) Value() interface{} {
+func (e *qElement) Value() interface{} {
 	return e.val
 }
 
 type qTree struct {
-	// The maximum number of entries a tree can hold before it needs to be subdivided.
+	// The maximum number of elements a tree can hold before it needs to be subdivided.
 	bucketSize int
 
 	// The tree's children, created by subdividing. This is nil prior to subdividing.
@@ -64,16 +65,35 @@ type qTree struct {
 	// A tree can no longer subdivide once depthRemaining is 0.
 	depthRemaining int
 
-	// A list of entries in this tree's bucket. Only leaves can contain entries. When a tree
-	// is subdivided its entries are distributed among the subdivisions.
-	entries []*qEntry
+	// A list of elements in this tree's bucket. Only leaves can contain elements. When a tree
+	// is subdivided its elements are distributed among the subdivisions.
+	elements []*qElement
 
-	// The tree's bounds. Only entries which fit inside the bounds can be added to the tree.
+	// The tree's bounds. Only elements which fit inside the bounds can be added to the tree.
 	bounds image.Rectangle
 }
 
 var _ QTree = (*qTree)(nil)
 
+// NewQuadTree returns a new quad tree.
+//
+// The bounds is the size of the quad tree space. The quad tree can only contain elements which
+// exist within the bounds.
+//
+// The bucketSize is the maximum number of elements a tree can hold before it is subdivided.
+// A larger value for the bucketSize uses less memory but can make fine grained selecting slow.
+// Using a value that's too small will cause the tree to become imbalanced. Suffice to say, the
+// correct value for the bucket size is application dependent, and you will probably need to test
+// different bucket sizes before finding a good middleground.
+//
+// The maxDepth is the maximum number of times a tree can subdivide itself. This number should
+// reflect the size of your dataset. Once a tree has hit its subdivision limit, it will continue
+// to add elements beyond its bucketSize. If the maxDepth is too small, the elements will be
+// contained in fewer lists, which will cause searching to act more like a linear search rather
+// than a binary search. However, if the maxDepth is too large, it can cause problems if
+// elements are very close together. For example, if you add several elements directly on top
+// of each other, the tree will keep subdividing itself over and over again as it tries to make
+// the bounds small enough. Of course, the tree will stop subdividing once it hits the maxDepth.
 func NewQuadTree(bounds image.Rectangle, bucketSize int, maxDepth int) QTree {
 	return newQuadTree(bounds, bucketSize, maxDepth)
 }
@@ -96,7 +116,7 @@ func newQuadTree(bounds image.Rectangle, bucketSize int, maxDepth int) *qTree {
 	return &qTree{
 		bucketSize:     bucketSize,
 		depthRemaining: maxDepth,
-		entries:        make([]*qEntry, 0, bucketSize),
+		elements:       make([]*qElement, 0, bucketSize),
 		bounds:         bounds,
 	}
 }
@@ -110,45 +130,45 @@ func (t *qTree) InBounds(p image.Point) bool {
 }
 
 func (t *qTree) Insert(p image.Point, val interface{}) bool {
-	return t.insert(&qEntry{p: p, val: val})
+	return t.insert(&qElement{p: p, val: val})
 }
 
-func (t *qTree) Select(rect image.Rectangle) []QEntry {
+func (t *qTree) Select(rect image.Rectangle) []QElement {
 	if !t.bounds.Overlaps(rect) {
 		return nil
 	}
 
-	entries := []QEntry{}
+	elements := []QElement{}
 
 	if t.children == nil {
-		if len(t.entries) > 0 {
-			leafEntries := make([]QEntry, len(t.entries))
+		if len(t.elements) > 0 {
+			leafElements := make([]QElement, len(t.elements))
 
-			for i, leaf := range t.entries {
-				leafEntries[i] = leaf
+			for i, leaf := range t.elements {
+				leafElements[i] = leaf
 			}
 
-			entries = append(entries, leafEntries...)
+			elements = append(elements, leafElements...)
 		}
 	} else {
 		for _, child := range t.children {
-			childEntries := child.Select(rect)
+			childElements := child.Select(rect)
 
-			if len(childEntries) > 0 {
-				entries = append(entries, childEntries...)
+			if len(childElements) > 0 {
+				elements = append(elements, childElements...)
 			}
 		}
 	}
 
-	if len(entries) == 0 {
+	if len(elements) == 0 {
 		return nil
 	}
 
-	return entries
+	return elements
 }
 
-func (t *qTree) insert(entry *qEntry) bool {
-	if !t.InBounds(entry.p) {
+func (t *qTree) insert(element *qElement) bool {
+	if !t.InBounds(element.p) {
 		return false
 	}
 
@@ -156,7 +176,7 @@ func (t *qTree) insert(entry *qEntry) bool {
 	// into one of the children.
 	if t.children != nil {
 		for _, child := range t.children {
-			if child.insert(entry) {
+			if child.insert(element) {
 				break
 			}
 		}
@@ -164,15 +184,15 @@ func (t *qTree) insert(entry *qEntry) bool {
 		return true
 	}
 
-	// Add the entry to this tree if there's room for it, or if we have hit the depth limit.
-	if t.depthRemaining == 0 || len(t.entries) < t.bucketSize {
-		t.entries = append(t.entries, entry)
+	// Add the element to this tree if there's room for it, or if we have hit the depth limit.
+	if t.depthRemaining == 0 || len(t.elements) < t.bucketSize {
+		t.elements = append(t.elements, element)
 		return true
 	}
 
 	// This tree is now at capacity. Subdivide into quadrants and move the leaves into the children.
 	t.children = t.subdivide()
-	leaves := append(t.entries, entry)
+	leaves := append(t.elements, element)
 
 	for _, leaf := range leaves {
 		for _, child := range t.children {
@@ -182,7 +202,7 @@ func (t *qTree) insert(entry *qEntry) bool {
 		}
 	}
 
-	t.entries = nil
+	t.elements = nil
 
 	return true
 }
@@ -194,7 +214,7 @@ func (t *qTree) subdivide() []*qTree {
 	center := min.Add(max).Div(2)
 
 	// North west
-	trees[nw] = newQuadTree(
+	trees[0] = newQuadTree(
 		image.Rectangle{
 			Min: min,
 			Max: center,
@@ -204,7 +224,7 @@ func (t *qTree) subdivide() []*qTree {
 	)
 
 	// North east
-	trees[ne] = newQuadTree(
+	trees[1] = newQuadTree(
 		image.Rectangle{
 			Min: image.Pt(center.X, min.Y),
 			Max: image.Pt(max.X, center.Y),
@@ -214,7 +234,7 @@ func (t *qTree) subdivide() []*qTree {
 	)
 
 	// South west
-	trees[sw] = newQuadTree(
+	trees[2] = newQuadTree(
 		image.Rectangle{
 			Min: image.Pt(min.X, center.Y),
 			Max: image.Pt(center.X, max.Y),
@@ -224,7 +244,7 @@ func (t *qTree) subdivide() []*qTree {
 	)
 
 	// South east
-	trees[se] = newQuadTree(
+	trees[3] = newQuadTree(
 		image.Rectangle{
 			Min: center,
 			Max: max,
