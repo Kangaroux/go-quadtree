@@ -101,7 +101,7 @@ func (t *qTree) Select(rect image.Rectangle) []QEntry {
 
 	entries := []QEntry{}
 
-	if t.children != nil {
+	if t.children == nil {
 		if len(t.leaves) > 0 {
 			leafEntries := make([]QEntry, len(t.leaves))
 
