@@ -153,8 +153,9 @@ func (t *qTree) insert(entry *qEntry) bool {
 
 	// This tree is now at capacity. Subdivide into quadrants and move the leaves into the children.
 	t.children = t.subdivide()
+	leaves := append(t.leaves, entry)
 
-	for _, leaf := range t.leaves {
+	for _, leaf := range leaves {
 		for _, child := range t.children {
 			if child.insert(leaf) {
 				break
